@@ -6,6 +6,9 @@ router = APIRouter()
 
 BASE_FOLDER = "Uploaded"
 
+@router.get("/health")
+def health_check():
+    return {"status": "success", "message": "Muzic Backend is Live"}
 
 @router.get("/library")
 def get_library():

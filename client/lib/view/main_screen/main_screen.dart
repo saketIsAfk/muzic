@@ -23,7 +23,7 @@ class _MainScreenState extends State<MainScreen> {
   final List<Widget> _screens = [
     BlocProvider(
       create: (_) => SongsListCubit(repository: SongsListRepository()),
-      child: const HomeScreenView(),
+      child: const HomeScreen(),
     ),
     const Center(child: Text("Search Screen")),
     const Center(child: Text("Your Library")),
@@ -47,11 +47,7 @@ class _MainScreenState extends State<MainScreen> {
           BlocBuilder<PlayerCubit, PlayerState>(
             builder: (context, state) {
               if (state.currentSong == null) return const SizedBox.shrink();
-              return MiniPlayer(
-                song: state.currentSong!,
-                isPlaying: state.isPlaying,
-                onTogglePlay: () => context.read<PlayerCubit>().togglePlay(),
-              );
+              return MiniPlayer(song: state.currentSong!, isPlaying: state.isPlaying, onTogglePlay: () => context.read<PlayerCubit>().togglePlay());
             },
           ),
         ],

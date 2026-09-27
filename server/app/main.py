@@ -2,7 +2,7 @@ from fastapi import FastAPI
 import cloudinary
 from dotenv import load_dotenv
 import os
-from core.views.stream.stream import router as stream_router
+from app.core.views.stream.stream import router as stream_router
 
 load_dotenv()
 
