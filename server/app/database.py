@@ -11,6 +11,13 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL is None:
     raise RuntimeError("DATABASE_URL environment variable is not set.")
 
+# Force the psycopg2 driver explicitly. A bare "postgresql://" lets SQLAlchemy
+# pick a default driver, and that default isn't guaranteed the same across
+# environments (it picked psycopg2 locally, psycopg-v3 on a fresh Railway
+# container where only psycopg2-binary is installed -> crash on boot).
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 # engine doesn't mean the connection itself, it means it knows how to connect
 engine = create_engine(
     DATABASE_URL,
@@ -29,3 +36,13 @@ SessionLocal = sessionmaker(
     autoflush=False, # Don't send partial changes to the database unless I ask.
     autocommit=False, # Don't auto-save after every little change.
 )
+
+
+def get_db():
+    # FastAPI dependency: opens one session per request, and closes it
+    # once the endpoint is done — even if the endpoint raises.
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

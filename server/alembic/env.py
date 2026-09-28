@@ -20,6 +20,10 @@ database_url = os.getenv("DATABASE_URL")
 if database_url is None:
     raise RuntimeError("DATABASE_URL is not set.")
 
+# Same driver-pin as app/database.py — see comment there.
+if database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.

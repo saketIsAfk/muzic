@@ -25,6 +25,7 @@ class Song(Base):
     album_id = Column(Integer, ForeignKey("albums.id"))
     artist_id = Column(Integer, ForeignKey("artists.id"))
     artist = relationship("Artist", back_populates="songs")
+    album = relationship("Album", back_populates="songs")
     created_at = Column(DateTime, nullable=False, default=func.now())
     updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
 
@@ -45,6 +46,7 @@ class Album(Base):
     release_year = Column(Integer)
     artist_id = Column(Integer, ForeignKey("artists.id"))
     artist = relationship("Artist", back_populates="albums")
+    songs = relationship("Song", back_populates="album")
     created_at = Column(DateTime, nullable=False, default=func.now())
     updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
 
