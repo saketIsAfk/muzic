@@ -27,14 +27,13 @@
 2. **`Song.duration` comes back `None`.** Both the old Cloudinary-live `/library` and the ingest
    script hit this — `full_audio.get("duration")` doesn't return what's expected from Cloudinary's
    API for these assets. Not debugged yet; not blocking, just a known gap in the data.
-3. **`railway.json`'s `preDeployCommand` is silently ignored.** Set it to run
-   `alembic upgrade head` before every deploy, but nothing in the deploy logs shows it ever
-   running — the CLI warns Config-as-Code (`railway.json`/`.toml`) is deprecated in favor of a
-   `.railway/railway.ts` IaC file, and the old format may just not be applied automatically by
-   `railway up`. Worked around manually twice (opened a temporary `railway tcp-proxy` to Postgres,
-   ran `alembic upgrade head` / the ingest script from the laptop against that public proxy, then
-   deleted the proxy). **Not sustainable** — every future migration needs this by hand until fixed
-   properly (likely `railway config migrate` to the new IaC file, unverified).
+3. ~~`railway.json`'s `preDeployCommand` is silently ignored~~ — **resolved**, see session log
+   2026-10-04. Root cause: `railway up` only ever read `railway.json` for build settings;
+   service-level deploy settings like `preDeployCommand` are config living in Railway's own
+   service object and have to be set through their IaC tool, not a dropped-in file. Fixed via
+   `.railway/railway.ts` + `railway config apply`. Confirmed in logs: every deploy now runs
+   `alembic upgrade head` in a throwaway container, stops it, then starts the real `uvicorn`
+   container — two "Starting Container" lines per deploy is the expected signature.
 4. **Ingest against production isn't automatic.** Ran manually via the same temporary-proxy trick.
    New Cloudinary uploads won't show up in the deployed app until someone remembers to re-run it
    against prod. No cron/webhook yet.
@@ -44,47 +43,65 @@
 
 ## Priority backlog (small/necessary → big/delayable)
 
-**P0 — mostly done, cleanup remaining**
-1. ~~Deploy backend + managed Postgres~~ — done (Railway).
-2. ~~Point Flutter `ApiConfig.baseUrl` at the deployed URL via `--dart-define`~~ — done.
-3. ~~Rotate the Cloudinary secret~~ — done.
-4. Fix `preDeployCommand` so migrations run automatically on deploy (blocker 3 above) — **still open**.
-5. Automate ingest-against-production, at least a documented manual step, ideally a cron/webhook
-   (blocker 4 above) — **still open**.
+**Re-ranked 2026-10-04 — resume-value-weighted (product-lead lens), see session log entry below
+for full reasoning.** Supersedes the plain "small→big" ordering above for anything not already
+done. Old P0 cleanup items kept at top since they're still real open bugs.
 
-**P1 — soon after**
-- Backend: `GET /search?q=` (SQL `ILIKE` + index), pagination on `/library`.
-- Frontend: search bar + debounce, infinite-scroll list matching the paginated API.
-- Auth: verify Firebase ID token server-side; gate the home screen client-side; wire up the
-  empty `user_repo.dart`. (Firebase sign-in exists but is currently decorative.)
-- Frontend: loading / empty / error states on home + player screens.
+**NOW**
+1. ~~Fix `preDeployCommand` so migrations run automatically on deploy~~ — **done**, see session log.
+2. **Auth end-to-end** — verify Firebase ID token server-side (FastAPI dependency), gate home
+   screen client-side, wire up empty `user_repo.dart`. Highest resume value: most-asked interview
+   topic, and unlocks every personalization feature below. Firebase sign-in exists but is
+   currently decorative/dead code.
+3. **Automate Cloudinary → DB ingestion** (Cloudinary webhook → FastAPI endpoint → idempotent
+   upsert of just the new asset, not a full re-walk). Replaces the manual tcp-proxy trick used
+   twice this project already (blocker 4). Resume story: "event-driven media pipeline."
+4. **CI/CD** — connect Railway service to GitHub so `git push` auto-deploys, instead of manual
+   `railway up`. Cheap once the preDeployCommand bug (item 1) is fixed; itself an interview topic.
+
+**NEXT**
+- Search: `GET /search?q=` — start with SQL `ILIKE` + index, upgrade to `pg_trgm` (trigram
+  similarity) for typo-tolerant fuzzy search — a genuine "better than Spotify" micro-flex.
+  Frontend: search bar + debounce.
+- User features: favorites, playlists, play history, "recently played" — the thing that makes
+  this look like a product, not a CRUD demo. Needs auth (NOW item 2) done first.
+- Player polish: queue, gapless/crossfade, background audio, offline cache (`audio_service` +
+  `just_audio`) — high demo/interview-screenshare value.
+- Pagination on `/library`; frontend infinite-scroll to match.
+- Frontend: loading/empty/error states on home + player screens.
 - Frontend: `EnvConfigs.assertConfigured()`-style guard — assert on launch (debug only) that
-  required `--dart-define` values aren't empty, so a forgotten flag fails loudly at startup
-  instead of silently as a confusing empty-list/401 bug later. (Idea scanned from a reference
-  Flutter codebase's `constants.dart`; directly motivated by the empty-`/library` confusion this
-  session — see blocker 4 / session log below.)
-- Frontend: cURL debug logging — print every outgoing HTTP request as a runnable `curl ...` line
-  in debug console. Same source, would have made the empty-library issue obvious immediately.
-- Frontend: a `BlocObserver` override logging Cubit state transitions (`onChange`/`onError`) to
-  console. One class, cheap, gives free visibility into `SongsListCubit`/`PlayerCubit`.
+  required `--dart-define` values aren't empty, so a forgotten flag fails loudly instead of as a
+  confusing empty-list bug later (scanned from a reference Flutter codebase; motivated by the
+  empty-`/library` confusion earlier this project).
+- Frontend: cURL debug logging (print every outgoing request as a runnable `curl` line) and a
+  `BlocObserver` override logging Cubit state transitions — both cheap, both scanned from the
+  same reference codebase.
 
-**P2 — real features, can wait**
-- Favorites, playlists, play history (all need the P1 auth work first).
-- Background audio, queue, next/prev, shuffle/repeat (`audio_service` + `just_audio`).
+**LATER**
+- Observability: structured logs, Sentry (or Firebase Crashlytics), request metrics dashboard —
+  real SDE-level interview topic, compounds the longer the app runs.
+- Caching layer (Redis) in front of `/library` and `/search` — save before/after latency numbers
+  for the README; needs real traffic/data volume to be a credible story first.
+- Tests + CI (pytest, GitHub Actions) — write alongside new features going forward, don't
+  backfill all at once.
 - Signed/expiring Cloudinary stream URLs.
 - Album/artist detail endpoints + screens.
-- Structured logging / error tracking (e.g. free Sentry tier, or Firebase Crashlytics).
-- Local caching of the library list (`shared_preferences`).
-
-**P3 — polish, delay freely**
 - Dynamic theming from album art, mini-player motion polish.
-- pytest + GitHub Actions CI.
 - Rate limiting / security headers.
 - Docker + full production hardening (Roadmap Phase 6).
-- Swap `http` package for `dio` — only if/when Phase 2 auth needs interceptors to attach a token
-  to every request. Not worth the churn before that's a real need.
-- Alice-style full in-app network inspector — skip; cURL logging (P1, above) gets most of the
-  value for a fraction of the setup at this app's size.
+- Swap `http` package for `dio` — only if/when the auth work needs interceptors to attach a
+  token to every request automatically. Not worth the churn before that's a real need.
+- Alice-style full in-app network inspector — skip; cURL logging above gets most of the value
+  for a fraction of the setup at this app's size.
+
+**MOONSHOT — the actual "beat Spotify" wedges, do after NEXT tier has real usage data**
+- Simple recommendations ("because you played X") — even naive co-occurrence counting, no ML
+  framework needed. Highest-leverage differentiator vs. a generic music-app clone. Needs play
+  history (NEXT tier) to mean anything.
+- Real-time listening rooms (Spotify Jam equivalent) via WebSockets — genuinely harder than
+  anything Spotify ships smoothly; rare, hard, great interview story.
+- Explainable search/recommendations ("why this song") — transparency Spotify deliberately
+  doesn't offer. Needs recommendations to exist first.
 
 ## Concepts covered so far
 
@@ -100,6 +117,58 @@ commands · private vs public networking (`*.railway.internal` vs a TCP proxy) �
 ---
 
 ## Session log
+
+### 2026-10-04 — Fixed the `preDeployCommand` bug (migrations now run automatically on deploy)
+- **Diagnosed first, not guessed:** queried the service's actual live config via
+  `railway status --json` → `serviceManifest.deploy.preDeployCommand` was `null`. Proved
+  `railway.json` was never applied at all, not "applied and silently failing."
+- **Root cause:** `railway up` only reads `railway.json` for *build*-time settings (Railpack).
+  Deploy-level service config (`preDeployCommand`, `startCommand`, replicas, etc.) is state that
+  lives on the Railway service object itself, changed through their actual config system — not
+  something a file sitting in the repo gets auto-applied from. The CLI's repeated deprecation
+  warning about `railway.json`/`.toml` was the hint pointing at this the whole time.
+- **Fix: Railway's IaC flow.** `railway config pull` → generated `.railway/railway.ts`, a
+  TypeScript file that's the actual source of truth, matching the project's real resources
+  (Postgres, `muzic-server`, the volume). Added `preDeploy: "alembic upgrade head"` to the
+  `muzic-server` service definition by hand.
+  - Tried `railway config migrate` first (meant to auto-convert `railway.json`) — it invented a
+    *new* service named `server` instead of recognizing the existing `muzic-server`, which would
+    have created a duplicate service if applied. Discarded that output, used the hand-edited
+    `pull`'d file instead. Did keep one useful fact from it: the correct field name is `preDeploy`,
+    not `preDeployCommand` (that's the GraphQL/API name, not the IaC SDK's).
+  - `railway config plan` (read-only) confirmed exactly one intended change before touching
+    anything live — `~ Update muzic-server deploy.preDeployCommand (null → ["alembic upgrade head"])`.
+  - `railway config apply --yes` applied it. Verified via the same `status --json` query:
+    `preDeployCommand: ['alembic upgrade head']`.
+- Needed `npm install railway` (the IaC SDK) locally for the CLI to evaluate the `.ts` file —
+  added `server/package.json` + `node_modules/` (gitignored) purely as deploy tooling; doesn't
+  touch the Python app at all.
+- **Verified for real:** redeployed with `railway up`, then checked `railway logs -d` — saw
+  `Starting Container` → Alembic output → `Stopping Container` → `Starting Container` again (the
+  real `uvicorn` process). Two container starts per deploy is the correct signature: one throwaway
+  container for the migration, one for the app. `/library` still served data correctly after.
+- Deleted the now-dead `railway.json`.
+
+### 2026-10-04 — Resume-value re-ranking of the backlog
+- User asked to re-rank remaining work as a product lead would: optimize for full-stack-developer
+  resume impact and an eventual "Spotify-level, better in some respects" ambition, not just
+  small-effort-first.
+- Verdict on the 3 items user asked to compare: **auth first** (gates every personalization
+  feature, most-asked interview topic, currently decorative dead code in the repo) → **automate
+  Cloudinary ingestion second** (independent of auth, removes manual tcp-proxy toil hit twice
+  already, strong standalone "event-driven pipeline" story) → **search third** (no dependencies,
+  real value, but unlocks less than the other two).
+- Also pulled the open `preDeployCommand` bug and CI/CD (git-push auto-deploy) into the same NOW
+  tier — both cheap, both direct interview talking points, and CI/CD is blocked on the
+  preDeployCommand bug being fixed first anyway.
+- Named 3 concrete "beat Spotify" wedges instead of vague "make it better": typo-tolerant
+  (`pg_trgm`) search, simple usage-based recommendations, and real-time shared listening rooms —
+  flagged as MOONSHOT tier, after NEXT-tier features exist (recommendations need real play-history
+  data to mean anything).
+- Replaced the old flat P0–P3 "small→big" backlog ordering with NOW/NEXT/LATER/MOONSHOT tiers
+  above — old tiers kept where still accurate (e.g. still-open P0 bugs), superseded ordering
+  otherwise.
+- Nothing implemented this entry — planning/prioritization only.
 
 ### 2026-09-28 — Reference-codebase scan (Vetic app): what's worth borrowing
 - User shared a production Flutter app's `constants.dart` + `pubspec.yaml` and asked what to
