@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:muzic/constants/assets_constants.dart';
@@ -23,7 +24,11 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(milliseconds: 1000));
     // Check if the widget is still mounted (good practice)
     if (!mounted) return;
-    context.goNamed(ScreenNames.loginScreen);
+    // FirebaseAuth persists the signed-in session on-device already — no
+    // SharedPreferences needed. currentUser is non-null here if Firebase
+    // still has a valid persisted session from a previous launch.
+    final alreadySignedIn = FirebaseAuth.instance.currentUser != null;
+    context.goNamed(alreadySignedIn ? ScreenNames.mainScreen : ScreenNames.loginScreen);
   }
 
   @override

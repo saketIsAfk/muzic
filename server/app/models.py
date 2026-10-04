@@ -50,5 +50,16 @@ class Album(Base):
     created_at = Column(DateTime, nullable=False, default=func.now())
     updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
 
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    # The Firebase UID is the link back to the identity provider — unique and
+    # indexed because every verified request looks a user up by this value.
+    firebase_uid = Column(String, nullable=False, unique=True)
+    email = Column(String, nullable=False)
+    display_name = Column(String)
+    created_at = Column(DateTime, nullable=False, default=func.now())
+    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+
 # Base.metadata.create_all(bind=engine) - Base.metadata - Take every registered model - Generate SQL - Execute against this Engine
 # If create_all() is this easy, Why do people use Alembic? : simply it means create_all() will create the tables if they don't exist. It will not update the tables if they already exist. It will not create the tables if they already exist. It will not update the tables if they don't exist.

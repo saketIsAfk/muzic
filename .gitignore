@@ -6,3 +6,6 @@
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Firebase Admin SDK service account key — as sensitive as a password
+**/firebase-service-account.json

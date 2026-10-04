@@ -1,13 +1,13 @@
 // songs_list_repository.dart
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:muzic/core/base_dio_client/api_config.dart';
+import 'package:muzic/core/base_dio_client/api_client.dart';
 import 'package:muzic/features/resources/repositories/song_list_info.dart';
 
 class SongsListRepository {
+  final _apiClient = ApiClient();
 
   Future<SongsListInfo> fetchLibrary() async {
-    final response = await http.get(Uri.parse('${ApiConfig.baseUrl}/library'));
+    final response = await _apiClient.get('/library');
 
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body) as Map<String, dynamic>;

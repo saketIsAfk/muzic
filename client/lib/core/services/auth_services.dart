@@ -43,9 +43,64 @@ class AuthService {
       return userCredential;
     } on FirebaseAuthException catch (e) {
       log('❌ Firebase Auth Error: ${e.code} - ${e.message}');
+      if (e.code == 'account-exists-with-different-credential') {
+        // This email already has a password-based account. We're not
+        // auto-linking (see AuthService doc comment on
+        // signInOrSignUpWithEmail) — just tell the user which box to use.
+        throw FirebaseAuthException(
+          code: e.code,
+          message: "An account already exists with this email. Try continuing with email and password instead.",
+        );
+      }
       rethrow;
     } catch (e) {
       log('❌ Error signing in with Google: $e');
+      rethrow;
+    }
+  }
+
+  // One field, no separate "sign up" screen: tries to sign the user in, and
+  // if no account exists yet, creates one instead. The caller never has to
+  // know or ask which case it was.
+  //
+  // Ambiguity this can't resolve: Firebase's email-enumeration protection
+  // means a sign-in failure doesn't distinguish "no account" from "wrong
+  // password for an existing one" — both can surface as the same error code.
+  // So if we fall through to account creation and Firebase says
+  // "email-already-in-use", we genuinely don't know whether that's a
+  // mistyped password on an existing password account, or an account that
+  // only has Google linked. The message below is honest about that instead
+  // of guessing. True account linking (merging both into one account) is a
+  // deliberate later upgrade, not done here.
+  Future<UserCredential?> signInOrSignUpWithEmail(String email, String password) async {
+    const signInFailureCodes = {'user-not-found', 'wrong-password', 'invalid-credential'};
+    try {
+      final userCredential = await _auth.signInWithEmailAndPassword(email: email, password: password);
+      log('✅ Signed in to Firebase: ${userCredential.user?.email}');
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      if (!signInFailureCodes.contains(e.code)) {
+        log('❌ Firebase Auth Error: ${e.code} - ${e.message}');
+        rethrow;
+      }
+    }
+
+    try {
+      final userCredential = await _auth.createUserWithEmailAndPassword(email: email, password: password);
+      // No separate "pick a username" step in this flow — fall back to the
+      // email's local part as a placeholder display name, editable later
+      // from a profile screen whenever that exists.
+      await userCredential.user?.updateDisplayName(email.split('@').first);
+      log('✅ Account created in Firebase: ${userCredential.user?.email}');
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      log('❌ Firebase Auth Error: ${e.code} - ${e.message}');
+      if (e.code == 'email-already-in-use') {
+        throw FirebaseAuthException(
+          code: e.code,
+          message: "An account already exists with this email. Check your password, or try continuing with Google if that's how you originally signed up.",
+        );
+      }
       rethrow;
     }
   }

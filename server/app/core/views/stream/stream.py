@@ -4,7 +4,8 @@ import cloudinary
 import cloudinary.api
 
 from app.database import get_db
-from app.models import Album
+from app.models import Album, User
+from app.core.views.auth.auth import get_or_create_db_user
 
 router = APIRouter()
 
@@ -13,7 +14,7 @@ def health_check():
     return {"status": "success", "message": "Muzic Backend is Live"}
 
 @router.get("/library")
-def get_library(db: Session = Depends(get_db)):
+def get_library(db: Session = Depends(get_db), user: User = Depends(get_or_create_db_user)):
     albums = (
         db.query(Album)
         .options(joinedload(Album.songs))  # one JOIN query, not one query per album
@@ -40,7 +41,7 @@ def get_library(db: Session = Depends(get_db)):
 
 
 @router.get("/stream/{public_id:path}")
-def stream_song(public_id: str):
+def stream_song(public_id: str, user: User = Depends(get_or_create_db_user)):
     """Returns the playable MP3 URL for the given audio resource."""
     try:
         resource = cloudinary.api.resource(

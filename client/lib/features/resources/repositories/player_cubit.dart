@@ -56,6 +56,14 @@ class PlayerCubit extends Cubit<PlayerState> {
     await _player.seek(position);
   }
 
+  /// Stops playback and clears the now-playing song (e.g. on logout).
+  /// Emits a fresh PlayerState rather than copyWith — copyWith's `??`
+  /// fallback pattern can't null out currentSong/streamUrl once set.
+  Future<void> stop() async {
+    await _player.stop();
+    emit(PlayerState());
+  }
+
   @override
   Future<void> close() {
     _player.dispose();

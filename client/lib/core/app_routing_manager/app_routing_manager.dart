@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:muzic/core/screen_names.dart';
 import 'package:muzic/features/auth/view/pages/login_screen.dart';
-import 'package:muzic/features/auth/view/pages/signup_process_screen.dart';
-import 'package:muzic/features/auth/view/pages/signup_screen.dart';
 import 'package:go_router/go_router.dart';
 import 'package:muzic/view/home/view/home_screen.dart';
 import 'package:muzic/view/main_screen/main_screen.dart';
@@ -26,16 +24,6 @@ class AppRoutingManager {
         path: "/${ScreenNames.loginScreen}",
         name: ScreenNames.loginScreen,
         builder: (context, state) => const LoginScreen(),
-      ),
-      GoRoute(
-        path: "/${ScreenNames.signUpScreen}",
-        name: ScreenNames.signUpScreen,
-        builder: (context, state) => const SignUpScreen(),
-      ),
-      GoRoute(
-        path: "/${ScreenNames.signUpProcessScreen}",
-        name: ScreenNames.signUpProcessScreen,
-        builder: (context, state) => const SignupProcessScreen(),
       ),
       GoRoute(
         path: "/${ScreenNames.homeScreen}",
