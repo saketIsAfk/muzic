@@ -14,11 +14,17 @@
 - **Phase 1 (Real Database):** Postgres + SQLAlchemy + Alembic done. Ingest script writes real
   rows (idempotent), run against both local and production DBs. `/library` reads Postgres, not
   Cloudinary. Pagination and a real test are still open.
+- **Auth end-to-end: done, deployed, verified in production.** Firebase ID tokens verified
+  server-side, `users` table resolves identity to our own row, `/library` + `/stream` require a
+  valid token, `/health` stays open. Client: unified single-screen login (Google + smart
+  email/password), one `ApiClient` attaches the token to every request, session persists across
+  app restarts (no forced re-login), logout actually stops playback, login screen restyled with
+  the app's own existing theme. All committed in `26c1fd4`, deployed to Railway.
 - **Backend is deployed.** Railway project `amusing-charm`: `muzic-server` service (FastAPI) +
   `Postgres` service, public URL `https://muzic-server-production.up.railway.app`. Client
   `ApiConfig.baseUrl` now defaults to it via `--dart-define` (overridable for local LAN testing).
 - Secret rotated — blocker #1 below is resolved.
-- Nothing pushed to `origin/main` yet since the last commit.
+- Everything committed (`26c1fd4`) and pushed to `origin/main`.
 
 ## Open blockers
 
@@ -34,12 +40,16 @@
    `.railway/railway.ts` + `railway config apply`. Confirmed in logs: every deploy now runs
    `alembic upgrade head` in a throwaway container, stops it, then starts the real `uvicorn`
    container — two "Starting Container" lines per deploy is the expected signature.
-4. **Ingest against production isn't automatic.** Ran manually via the same temporary-proxy trick.
-   New Cloudinary uploads won't show up in the deployed app until someone remembers to re-run it
-   against prod. No cron/webhook yet.
+4. **Ingest against production still isn't automatic.** Unresolved — see NOW item 3 below. Ran
+   manually via the same temporary-proxy trick. New Cloudinary uploads won't show up in the
+   deployed app until someone remembers to re-run it against prod. No cron/webhook yet.
 5. `railway ssh` fails with "Host key verification failed" even after registering a key via
    `railway ssh keys add` — used the TCP-proxy workaround instead (see blocker 3). Not investigated
    further.
+6. ~~Firebase service account key had no way to reach production~~ — **resolved**, see session log
+   2026-10-19. `main.py` now reads `FIREBASE_SERVICE_ACCOUNT_JSON` (full key contents as one env
+   var, set on Railway, never written to disk there) in production, falling back to the local
+   gitignored file via `FIREBASE_SERVICE_ACCOUNT_PATH` for dev.
 
 ## Priority backlog (small/necessary → big/delayable)
 
@@ -49,10 +59,11 @@ done. Old P0 cleanup items kept at top since they're still real open bugs.
 
 **NOW**
 1. ~~Fix `preDeployCommand` so migrations run automatically on deploy~~ — **done**, see session log.
-2. **Auth end-to-end** — verify Firebase ID token server-side (FastAPI dependency), gate home
-   screen client-side, wire up empty `user_repo.dart`. Highest resume value: most-asked interview
-   topic, and unlocks every personalization feature below. Firebase sign-in exists but is
-   currently decorative/dead code.
+2. ~~Auth end-to-end~~ — **done, deployed, verified in production.** Firebase ID token verified
+   server-side, `/library` + `/stream` protected, unified login screen (Google + smart
+   email/password), token attached automatically to every request, session persists across
+   restarts, logout stops playback. `user_repo.dart` still unused/empty — not yet needed, nothing
+   reads it; revisit once a feature (favorites, etc.) actually calls it.
 3. **Automate Cloudinary → DB ingestion** (Cloudinary webhook → FastAPI endpoint → idempotent
    upsert of just the new asset, not a full re-walk). Replaces the manual tcp-proxy trick used
    twice this project already (blocker 4). Resume story: "event-driven media pipeline."
@@ -117,6 +128,30 @@ commands · private vs public networking (`*.railway.internal` vs a TCP proxy) �
 ---
 
 ## Session log
+
+### 2026-10-19 — Firebase credentials reach production; auth deployed for real
+- The whole auth build (`26c1fd4`, see 2026-10-04 entries below) had been committed and pushed
+  but never deployed — confirmed via `curl .../auth/me` returning `404` on production, proving it
+  was still running pre-auth code.
+- Deploying it as-is would have crashed the app on boot: `firebase_admin.initialize_app()` needs
+  a service account credential, and Railway had no Firebase variables at all (checked via
+  `railway variable list` first, not assumed) — only Cloudinary/DB ones.
+- Fixed `main.py` to read `FIREBASE_SERVICE_ACCOUNT_JSON` (the key's full JSON contents, as one
+  env var) when present, falling back to the existing `FIREBASE_SERVICE_ACCOUNT_PATH` file-based
+  approach for local dev. Same shape as the `DATABASE_URL` story: a secret is an env var in
+  production, never a file shipped with the build.
+- Set the var on Railway by piping the local (gitignored) key file straight into
+  `railway variable set ... --stdin` — the value never appeared in any command output.
+- Verified local dev was unaffected (still uses the file path) before touching production.
+- Deployed. Logs showed the same two-container signature as the earlier `preDeployCommand` fix:
+  migration container creates the `users` table on production, then the real `uvicorn` container
+  boots clean — proof the credential parsed correctly (a bad credential would have crashed
+  `firebase_admin.initialize_app()` at import time, taking `/health` down too, not just the
+  protected routes).
+- Confirmed end-to-end on production: `/health` → 200, `/library` → 401 without a token,
+  `/auth/me` → 401 without a token (previously 404, i.e. didn't exist).
+- Cleaned up a stray duplicate `## Session log` heading in this file from an earlier session,
+  which had silently split the log into two disconnected stacks.
 
 ### 2026-10-04 — Backend verifies Firebase ID tokens; `users` table added
 - **Concept: never trust the client.** Anyone could previously call the backend claiming to be
@@ -264,8 +299,6 @@ commands · private vs public networking (`*.railway.internal` vs a TCP proxy) �
   still available for local-backend testing.
 - Since `songs_list_repo.dart` and `player_repo.dart` both already went through the single
   `ApiConfig.baseUrl` (from the earlier Phase 0 cleanup), this one edit updated both call sites.
-
-## Session log
 
 ### 2026-09-27 — `/library` now reads Postgres, not Cloudinary
 - **Problem:** old `/library` made ~3 Cloudinary API calls per song, every request (the N+1
