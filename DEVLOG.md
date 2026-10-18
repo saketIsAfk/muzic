@@ -67,8 +67,10 @@ done. Old P0 cleanup items kept at top since they're still real open bugs.
 3. **Automate Cloudinary → DB ingestion** (Cloudinary webhook → FastAPI endpoint → idempotent
    upsert of just the new asset, not a full re-walk). Replaces the manual tcp-proxy trick used
    twice this project already (blocker 4). Resume story: "event-driven media pipeline."
-4. **CI/CD** — connect Railway service to GitHub so `git push` auto-deploys, instead of manual
-   `railway up`. Cheap once the preDeployCommand bug (item 1) is fixed; itself an interview topic.
+4. ~~CI/CD~~ — **done**, see session log 2026-10-19. `muzic-server` connected to the GitHub repo,
+   scoped to `server/` via `rootDirectory` so client-only commits don't trigger a backend rebuild.
+   Not yet proven with a real push (needs the user to push — Claude doesn't commit/push in this
+   project), only with the connect-time auto-deploy.
 
 **NEXT**
 - Search: `GET /search?q=` — start with SQL `ILIKE` + index, upgrade to `pg_trgm` (trigram
@@ -128,6 +130,32 @@ commands · private vs public networking (`*.railway.internal` vs a TCP proxy) �
 ---
 
 ## Session log
+
+### 2026-10-19 — CI/CD: Railway now deploys on git push, not manual `railway up`
+- **Rule going forward, now resolved:** until today, `git commit`/`push` and Railway were two
+  completely disconnected systems — committing never touched the running server, only
+  `railway up` did. That gap is exactly how auth sat committed-but-undeployed for two weeks
+  (previous session entry). This closes it for `server/` changes specifically.
+- `railway service source connect --repo Saket5629/muzic --branch main --service muzic-server` —
+  connected the service to the GitHub repo. The Railway GitHub App was already authorized (from
+  account setup), so no dashboard OAuth step was needed this time.
+- **Monorepo problem:** the repo holds both `server/` (FastAPI) and `client/` (Flutter) in one
+  tree. Without scoping it, any Flutter-only commit would trigger a pointless backend rebuild.
+  Fixed via the IaC config: pulled current state (`railway config pull --force`), found the real
+  field is `rootDirectory` (not guessed — confirmed by `railway config plan`'s diff output showing
+  exactly `source.rootDirectory (null -> "server")` with zero errors), set
+  `github("Saket5629/muzic", { branch: "main", rootDirectory: "server" })`, applied.
+  - Tried `railway config migrate` for this too, like the `preDeployCommand` fix — same issue as
+    before, it assumes a different service shape than the one that actually exists. Used
+    `config pull` (which matches live state) instead of `migrate` again, same lesson as last time.
+- Connecting the source itself triggered an immediate deploy (not something I ran manually) —
+  watched it build and boot via `railway logs -d`, same two-container signature (migration
+  container, then the real app) as every deploy since the `preDeployCommand` fix. `/health`
+  confirmed 200 after.
+- **Not fully proven yet**: this showed the connection works and an initial deploy succeeds, but
+  the actual claim of CI/CD — "I push, it deploys, with no `railway up`" — needs a real push to
+  verify. That has to come from the user; this session doesn't commit or push (standing project
+  rule, see memory). Next real commit under `server/` is the genuine test.
 
 ### 2026-10-19 — Firebase credentials reach production; auth deployed for real
 - The whole auth build (`26c1fd4`, see 2026-10-04 entries below) had been committed and pushed
