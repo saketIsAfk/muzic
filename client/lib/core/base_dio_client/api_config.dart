@@ -3,6 +3,6 @@ class ApiConfig {
   // No flag passed -> defaults to the deployed backend.
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://muzic-server-production.up.railway.app',
+    defaultValue: 'https://muzic-s8w3.onrender.com',
   );
 }

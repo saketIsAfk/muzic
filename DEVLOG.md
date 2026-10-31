@@ -20,11 +20,14 @@
   email/password), one `ApiClient` attaches the token to every request, session persists across
   app restarts (no forced re-login), logout actually stops playback, login screen restyled with
   the app's own existing theme. All committed in `26c1fd4`, deployed to Railway.
-- **Backend is deployed.** Railway project `amusing-charm`: `muzic-server` service (FastAPI) +
-  `Postgres` service, public URL `https://muzic-server-production.up.railway.app`. Client
-  `ApiConfig.baseUrl` now defaults to it via `--dart-define` (overridable for local LAN testing).
+- **Backend is deployed on Render + Neon (Railway abandoned — trial credit ran out).**
+  `muzic-s8w3` web service (FastAPI) on Render, Postgres on Neon, public URL
+  `https://muzic-s8w3.onrender.com`. Client `ApiConfig.baseUrl` now defaults to it. Schema +
+  existing data (1 album, 6 songs) re-applied to Neon from scratch; verified `/health` (200),
+  `/library` and `/auth/me` (both 401 unauthenticated, as expected). See session log 2026-11-01.
 - Secret rotated — blocker #1 below is resolved.
-- Everything committed (`26c1fd4`) and pushed to `origin/main`.
+- Everything up to `26c1fd4` committed and pushed to `origin/main`. Render/Neon migration files
+  are staged, not committed yet (standing rule: Claude never commits in this project).
 
 ## Open blockers
 
@@ -50,6 +53,10 @@
    2026-10-19. `main.py` now reads `FIREBASE_SERVICE_ACCOUNT_JSON` (full key contents as one env
    var, set on Railway, never written to disk there) in production, falling back to the local
    gitignored file via `FIREBASE_SERVICE_ACCOUNT_PATH` for dev.
+7. ~~Railway trial credit exhausted, service gone~~ — **resolved** by migrating to Render (compute)
+   + Neon (Postgres), see session log 2026-11-01. CI/CD proof-of-push (blocker-adjacent, NOW item
+   4) has to be redone on Render — Railway's GitHub App permission issue was never confirmed fixed
+   before the platform was abandoned.
 
 ## Priority backlog (small/necessary → big/delayable)
 
@@ -130,6 +137,56 @@ commands · private vs public networking (`*.railway.internal` vs a TCP proxy) �
 ---
 
 ## Session log
+
+### 2026-11-01 — Migrated hosting: Railway → Render (compute) + Neon (Postgres)
+- **Trigger:** Railway's trial credit ran out; the project was gone, not just sleeping. User asked
+  for a free alternative suited to a dev-only project, explicitly rejecting a guessed pick
+  (Netlify doesn't run a long-lived Python process at all — it's static/serverless-frontend
+  hosting, wrong shape for this backend).
+- **Researched before recommending** (not assumed from memory): Render's free web service needs no
+  card; Render's own free Postgres expires and gets deleted after a window, so it was rejected in
+  favor of a DB provider with a genuinely permanent free tier; Fly.io now requires a card for all
+  new signups, ruled out; Neon's free tier has no time expiry and no card requirement. Landed on
+  **two separate free services** (Render for compute, Neon for Postgres) instead of one bundled
+  platform.
+- **User pushback, good instinct:** asked why not just use the laptop's local Postgres and skip
+  Neon entirely. Answered with the core networking fact: `localhost`/private LAN IPs are relative
+  to the machine making the request — a cloud-hosted backend can't reach a database sitting behind
+  home NAT with no public IP, and even if port-forwarded, it would tie the app's uptime to the
+  laptop staying on and expose a personal machine directly to the internet. Local Postgres remains
+  correctly scoped to local dev only; this doesn't change that.
+- **Neon setup:** user created the project, pasted the pooler connection string. Ran
+  `alembic upgrade head` against it via a one-off `DATABASE_URL=...` shell prefix (never written to
+  `server/.env`, which stays pointed at local Postgres for local dev) — both migrations applied
+  cleanly, no tcp-proxy workaround needed this time since Neon's pooler endpoint is public by
+  design (Railway's Postgres was private-only, hence the proxy trick used twice before). Re-ran
+  `scripts/ingest_cloudinary.py` the same way — added the same 1 album / 6 songs back. Verified row
+  counts directly against Neon: `albums: 1, songs: 6, users: 0` (users correctly empty — no one has
+  authenticated against this DB yet).
+- **Render setup:** new web service connected to `Saket5629/muzic`, **Root Directory** `server`
+  (Render's dashboard-native monorepo scoping — a plain form field, unlike Railway's
+  `rootDirectory` which needed a hand-edited `.railway/railway.ts` IaC file to set). Build command
+  `pip install -r requirements.txt`, start command
+  `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`. **Concept
+  difference from Railway:** Render's free tier has no separate pre-deploy-command step, so the
+  migration is chained into the start command with `&&` instead of running in its own throwaway
+  container first.
+- **Bug found:** first deploy crashed — `OSError: [Errno 36] File name too long`, with the full
+  Firebase service-account JSON shown as the attempted file path. Root cause: the JSON content had
+  been pasted into an env var named `FIREBASE_SERVICE_ACCOUNT_PATH` (which `main.py` treats as a
+  file path to open) instead of `FIREBASE_SERVICE_ACCOUNT_JSON` (which it parses directly as JSON)
+  — a var-naming mistake on Render's side, not a code bug. Fixed by renaming the var; same JSON
+  value.
+- **Verified end-to-end on the new host:** `/health` → 200, `/library` → 401 (unauthenticated,
+  correct — auth dependency runs before the DB query), `/auth/me` → 401 (correct, matches the
+  previous Railway-era behavior).
+- Updated `client/lib/core/base_dio_client/api_config.dart`'s default `baseUrl` from the dead
+  Railway URL to `https://muzic-s8w3.onrender.com`.
+- **New known trade-off:** Render's free tier spins the service down after ~15 min idle; the first
+  request after a gap takes 30–60s (cold start) instead of failing — worth knowing before assuming
+  a slow first load is a bug.
+- **Not done yet:** CI/CD push-triggers-deploy proof needs to be redone on Render (NOW item 4 /
+  blocker 7) — not yet tested with a real push.
 
 ### 2026-10-19 — CI/CD: Railway now deploys on git push, not manual `railway up`
 - **Rule going forward, now resolved:** until today, `git commit`/`push` and Railway were two
