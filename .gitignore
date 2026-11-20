@@ -9,3 +9,6 @@ __pycache__/
 
 # Firebase Admin SDK service account key — as sensitive as a password
 **/firebase-service-account.json
+
+# macOS Finder metadata, not project content
+**/.DS_Store

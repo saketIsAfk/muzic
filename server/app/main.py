@@ -7,6 +7,7 @@ import json
 import os
 from app.core.views.stream.stream import router as stream_router
 from app.core.views.auth.auth import router as auth_router
+from app.core.views.webhooks.webhooks import router as webhooks_router
 
 load_dotenv()
 
@@ -39,3 +40,4 @@ firebase_admin.initialize_app(_firebase_credential)
 
 app.include_router(stream_router)
 app.include_router(auth_router)
+app.include_router(webhooks_router)

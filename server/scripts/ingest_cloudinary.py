@@ -26,6 +26,50 @@ def get_or_create_album(session, name):
     return album
 
 
+def ingest_song(session, album, song_name, song_folder_path):
+    """Fetch one song folder's audio+cover from Cloudinary and insert it if new.
+
+    Shared by the full-library walk (main()) and the upload webhook, so both stay
+    idempotent the same way: re-checking Cloudinary directly instead of trusting
+    whatever triggered the call. Returns a short status string for logging.
+    """
+    audio_result = cloudinary.api.resources_by_asset_folder(
+        f"{song_folder_path}/Song",
+        resource_type="video",
+        max_results=1,
+    )
+    if not audio_result["resources"]:
+        return "no audio file yet"
+
+    audio_public_id = audio_result["resources"][0]["public_id"]
+
+    existing = session.query(Song).filter_by(audio_public_id=audio_public_id).first()
+    if existing:
+        return "already in DB"
+
+    full_audio = cloudinary.api.resource(audio_public_id, resource_type="video")
+    duration = full_audio.get("duration")
+
+    profile_result = cloudinary.api.resources_by_asset_folder(
+        f"{song_folder_path}/Profile",
+        resource_type="image",
+        max_results=1,
+    )
+    if not profile_result["resources"]:
+        return "no cover image yet"
+    cover_url = profile_result["resources"][0]["secure_url"]
+
+    song = Song(
+        title=song_name,
+        duration=duration,
+        audio_public_id=audio_public_id,
+        cover_url=cover_url,
+        album_id=album.id,
+    )
+    session.add(song)
+    return "added"
+
+
 def main():
     session = SessionLocal()
     try:
@@ -42,50 +86,9 @@ def main():
 
             for song_folder in songs_result["folders"]:
                 song_name = song_folder["name"]
-                song_folder_path = song_folder["path"]
-
-                audio_result = cloudinary.api.resources_by_asset_folder(
-                    f"{song_folder_path}/Song",
-                    resource_type="video",
-                    max_results=1,
-                )
-                if not audio_result["resources"]:
-                    print(f"  SKIP {song_name}: no audio file")
-                    continue
-
-                audio_public_id = audio_result["resources"][0]["public_id"]
-
-                existing = session.query(Song).filter_by(
-                    audio_public_id=audio_public_id
-                ).first()
-                if existing:
-                    print(f"  SKIP {song_name}: already in DB")
-                    continue
-
-                full_audio = cloudinary.api.resource(
-                    audio_public_id, resource_type="video"
-                )
-                duration = full_audio.get("duration")
-
-                profile_result = cloudinary.api.resources_by_asset_folder(
-                    f"{song_folder_path}/Profile",
-                    resource_type="image",
-                    max_results=1,
-                )
-                if not profile_result["resources"]:
-                    print(f"  SKIP {song_name}: no cover image")
-                    continue
-                cover_url = profile_result["resources"][0]["secure_url"]
-
-                song = Song(
-                    title=song_name,
-                    duration=duration,
-                    audio_public_id=audio_public_id,
-                    cover_url=cover_url,
-                    album_id=album.id,
-                )
-                session.add(song)
-                print(f"  ADDED {song_name}")
+                status = ingest_song(session, album, song_name, song_folder["path"])
+                verb = "ADDED" if status == "added" else "SKIP"
+                print(f"  {verb} {song_name}: {status}" if status != "added" else f"  ADDED {song_name}")
 
         session.commit()
         print("\nDone.")
